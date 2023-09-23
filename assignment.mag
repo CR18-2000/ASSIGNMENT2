@@ -1,0 +1,211 @@
+// Global variables: the integers and the ring of polynomial with integer coefficients
+Z:=Integers();
+P<x>:=PolynomialRing(Z);
+
+// The function TerPol takes in input three integers d1, d2, and N and returns the sequence of coefficients of a tertiary 
+// polynomial in P<x>/(x^N - 1) with d1 coefficients equal to 1 and d2 coefficients equal to d2. It returns the sequenc
+function TerPol(d1,d2,N)
+    // Initialize an empty result sequence
+    result := [];
+    // Maximum number of zeros in the result sequence
+    d3:=(N-d1-d2);
+
+    // Initialize counters for elements with value 1, 0 and -1
+    count1 := 0; //count for 1
+    count2 := 0; //count for -1
+    count3 := 0; //count for 0
+    
+    // Set each element of the result sequence to a random value between -1, 0, and 1
+    while count1 lt d1 and count2 lt d2 and count3 lt d3 do
+        value := Random(-1, 1);
+        Append(~result, value);
+        if value eq 1 then
+            count1 +:= 1;
+        elif value eq -1 then
+            count2 +:= 1;
+        else
+            count3 +:= 1;
+        end if;
+    end while;
+
+    // Check the condition that made the program exit the while loop
+    if count3 eq d3 then
+        // Fill the remaining elements of the result sequence to -1 or 1
+        while count1 lt d1 and count2 lt d2 do
+            value := Random({-1, 1});  
+            Append(~result, value);
+            if value eq 1 then
+                count1 +:= 1;
+            else
+                count2 +:= 1;
+            end if;
+        end while;
+
+        if count1 eq d1 then
+            // Complete the sequence with -1's if d1 and d3 are reached
+            for i in [1..d2-count2] do
+                Append(~result, -1);
+            end for;
+        else
+            // Complete the sequence with 1's if d2 and d3 are reached
+            for i in [1..d1-count1] do
+                Append(~result, 1);
+            end for;
+        end if;
+    
+    // Perform the same verifications if either d1 or d2 is reached
+    elif count1 eq d1 then
+        while count2 lt d2 and count3 lt d3 do
+            value := Random(-1, 0);
+            Append(~result, value);
+            if value eq -1 then
+                count2 +:= 1;
+            else
+                count3 +:= 1;
+            end if;
+        end while;
+
+        if count3 eq d3 then 
+            for i in [1..d2-count2] do
+                Append(~result, -1);
+            end for;
+        end if;
+
+        // The case count2 eq d2 is not necessary because, if d1 and d2 are reached, the sequence without the d3 - count3 zeros produces the same polynomial 
+
+
+    else //count2 eq d2
+        while count1 lt d1 and count3 lt d3 do
+            value := Random(0, 1);
+            Append(~result, value);
+            if value eq 1 then
+                count1 +:= 1;
+            else
+                count3 +:= 1;
+            end if;
+        end while;
+        if count3 eq d3 then
+            for i in [1..d1-count1] do
+                Append(~result, 1);
+            end for;
+        end if;
+        // The case count2 eq d2 is not necessary because, if d1 and d2 are reached, the sequence without the d3 - count3 zeros produces the same polynomial 
+    end if;
+    // Return the result sequence
+    return result;
+
+end function;
+
+// The function Lifting takes in input a prime p and a sequence f representing a polynomial in Z/pZ[x] and performs 
+// the center-lift of the polynomial. It returns the unique polynomial f' with coefficients in [-p/2,p/2] such that 
+// f' mod p = f.
+function Lifting(p, f)
+    // We consider the coefficients of f in Z
+    f := ChangeUniverse(f, Z);
+
+    for i in [1..#f] do
+        // If the coefficient is greater than p/2 then we subtract p to have an integer between -p/2 and p/2
+        if Abs(f[i]) gt p/2 then
+            f[i] := f[i] - p;
+        end if;
+    end for;
+
+    // We return f after the center-lift 
+    return f;
+end function; 
+
+// The function NTRUKeyGeneration takes in input three prime numbers N,p,q and an integers d and returns a pair of keys (secret and public) for the NTRU cryptosystem
+function NTRUKeyGeneration(N, d, p, q)
+    // Definition of the polynomial rings and of the convolution polynomial rings
+    Pq<y> := PolynomialRing(Integers(q));
+    Rq := quo<Pq | y^N - 1>;
+    Pp<z> := PolynomialRing(Integers(p));
+    Rp := quo<Pp | z^N - 1>;
+
+    // We look for a random tertiary polynomial f = TerPol(d+1,d,N) which is invertible in both Rq and Rp
+    repeat
+        f:=TerPol(d+1, d, N);
+        gcdFp, Fp, _ := XGCD(P!f, z^N-1); 
+        gcdFq, Fq, _ := XGCD(P!f, y^N-1); 
+    //until(IsInvertible(Rq!f) and IsInvertible(Rp!f));
+    until(gcdFp eq 1 and gcdFq eq 1);
+
+    // Creation of the secret key    
+    // Inverse of f in Rp
+    //Fp:=Eltseq((Rp!f)^(-1));
+    // Secret key 
+    sk:=<f, Fp>;
+
+    // Creation of the public key
+    // Inverse of f in Rq
+    //Fq:=(Rq!f)^(-1);
+    // g is a random tertiary polynomial TerPol(d,d,N)
+    g:=TerPol(d, d, N);
+    // Public key
+    h:=Eltseq((Rq!Fq)*(Rq!g));
+
+    // We return the secret and the public key
+    return sk, h;
+
+end function;
+
+// The function NTRUEncrypt takes in input an NTRU public key pk (as a sequence), a sequence m representing the message and the integers N,p,q,d 
+// and returns a sequence representing the encryption of m. 
+function NTRUEncrypt(pk, m, N, d, p, q)
+    // Definition of the convolution polynomial ring Rq
+    Pq<y> := PolynomialRing(Integers(q));
+    Rq := quo<Pq | y^N-1>;
+
+    // r is a random tertiary polynomial TerPol(d,d,N)
+    r := TerPol(d, d, N);
+    
+    // Creation of the output e = p*pk*r + m mod q (i.e. in Rq)
+    e:=p*(Rq!pk)*(Rq!r) + (Rq!m);
+    
+    // We return the sequence corresponding to e
+    return Eltseq(e);
+end function;
+
+// The function NTRUDecrypt takes in input an NTRU secret key sk (tuple of two sequences), a sequence c representing the ciphertext and 
+// the integers N,p,q,d and returns a sequence representing the decryption of c.
+function NTRUDecrypt(sk, c, N, d, p, q)
+    // Definition of the convolution polynomial ring Rq and Rp
+    Pq<x> := PolynomialRing(Integers(q));
+    Rq := quo<Pq | x^N-1>;
+    Pp<x> := PolynomialRing(Integers(p));
+    Rp := quo<Pp | x^N-1>;
+    
+    // Computatioon of a = f*c mod q (i.e. in Rq); here f = sk[1]
+    a := Rq!sk[1]*Rq!c;
+
+    // Center-lift of a. If q = 2, we do not need to center-left since every coefficient would already be in the interval [-q/2,q/2]
+    if q ne 2 then 
+        a := Lifting(q, Eltseq(a));
+    end if;
+
+    // Recovery of m = Fp*a mod p (i.e. in Rq); here Fp = sk[2]
+    m := Rp!sk[2]*Rp!a;
+
+    // Creation of the output
+    // If m = 0 then we return the sequence [0] (Magma would just return the empty sequence [])
+    if m eq 0 then
+        m:=[0];
+    // Otherwise we center-lift m in Rp and output the corresponding sequence
+    else 
+        m := Lifting(p, Eltseq(m));
+    end if;
+    
+    return m;
+end function;
+
+// The function NTRUEncryptDecrypt takes in input three prime numbers N,p,q, an integer d and a sequence m corresponding to a message and verifies
+// the correctness of the implementation of the function NTRUEncrypt, NTRUDecrypt, and NTRUKeyGeneration. 
+// It returns true if the encryption and decryption worked correctly (i.e. if we managed to recover m) and false otherwise.
+function NTRUEncryptDecrypt(N, d, p, q, m)
+    sk, pk:= NTRUKeyGeneration(N,d,p,q);
+
+    c := NTRUEncrypt(pk,m,N,d,p,q);
+
+    dec := NTRUDecrypt(sk,c,N,d,p,q);
+    return m eq dec;
+end function;
